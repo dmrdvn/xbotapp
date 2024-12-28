@@ -12,16 +12,5 @@
       "path": "/api/cron/tweet-publisher",
       "schedule": "0 * * * *"
     }
-  ],
-  "headers": [
-    {
-      "source": "/api/cron/(.*)",
-      "headers": [
-        {
-          "key": "Authorization",
-          "value": "Bearer @CRON_SECRET"
-        }
-      ]
-    }
   ]
 } 
