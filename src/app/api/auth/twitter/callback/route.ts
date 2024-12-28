@@ -5,6 +5,13 @@ import { createLog } from '@/services/firebase/log';
 import { LogType, LogSeverity } from '@/types/log';
 import { TwitterApi } from 'twitter-api-v2';
 
+// Environment validation
+if (!process.env.NEXT_PUBLIC_BASE_URL) {
+  throw new Error('NEXT_PUBLIC_BASE_URL is required');
+}
+
+const BASE_URL = process.env.NEXT_PUBLIC_BASE_URL;
+
 export async function GET(request: NextRequest) {
   console.log("[API] Twitter callback isteği başladı");
   
@@ -82,7 +89,7 @@ export async function GET(request: NextRequest) {
     });
 
     // Başarılı bağlantıdan sonra profil düzenleme sayfasına yönlendir
-    return NextResponse.redirect(new URL(`/profiles/${profileId}`, process.env.NEXT_PUBLIC_BASE_URL || 'http://localhost:3000'));
+    return NextResponse.redirect(new URL(`/profiles/${profileId}`, BASE_URL));
 
   } catch (error) {
     console.error("[API] Twitter callback hatası:", error);

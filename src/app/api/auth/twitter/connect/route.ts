@@ -1,7 +1,18 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { twitterClient, CALLBACK_URL } from '@/services/twitter/config';
 
-const BASE_URL = process.env.NEXT_PUBLIC_BASE_URL || 'http://localhost:3000';
+interface TwitterApiError extends Error {
+  data?: unknown;
+  type?: string;
+  code?: number;
+}
+
+// Environment validation
+if (!process.env.NEXT_PUBLIC_BASE_URL) {
+  throw new Error('NEXT_PUBLIC_BASE_URL is required');
+}
+
+const BASE_URL = process.env.NEXT_PUBLIC_BASE_URL;
 
 export async function GET(request: NextRequest) {
   try {
@@ -40,7 +51,14 @@ export async function GET(request: NextRequest) {
 
     return response;
   } catch (error) {
-    console.error('Twitter connect error:', error);
+    const twitterError = error as TwitterApiError;
+    console.error('Twitter connect error details:', {
+      error: twitterError,
+      errorMessage: twitterError.message,
+      errorData: twitterError.data,
+      errorType: twitterError.type,
+      errorCode: twitterError.code
+    });
     return NextResponse.redirect(new URL('/error?message=Failed to connect to Twitter', BASE_URL));
   }
 } 

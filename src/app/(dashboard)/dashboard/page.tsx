@@ -26,8 +26,9 @@ import {
 } from "lucide-react";
 import { format } from "date-fns";
 import { tr } from "date-fns/locale";
-import { db } from "@/services/firebase/config";
-import { collection, query, getDocs, orderBy, limit } from "firebase/firestore";
+import { db, auth } from "@/services/firebase/config";
+import { collection, query, getDocs, orderBy, limit, where } from "firebase/firestore";
+import { toast } from "@/components/ui/use-toast";
 
 interface FirestoreTimestamp {
   seconds: number;
@@ -66,6 +67,17 @@ export default function DashboardPage() {
   }, []);
 
   const fetchDashboardData = async () => {
+    const user = auth.currentUser;
+    if (!user) {
+      toast({
+        title: "Hata",
+        description: "Oturum açmanız gerekiyor",
+        variant: "destructive",
+      });
+      setLoading(false);
+      return;
+    }
+
     try {
       setLoading(true);
 
@@ -73,6 +85,7 @@ export default function DashboardPage() {
       const contentsRef = collection(db, "contents");
       const contentsQuery = query(
         contentsRef,
+        where("userId", "==", user.uid),
         orderBy("createdAt", "desc"),
         limit(5)
       );
@@ -87,6 +100,7 @@ export default function DashboardPage() {
       const logsRef = collection(db, "logs");
       const logsQuery = query(
         logsRef,
+        where("userId", "==", user.uid),
         orderBy("createdAt", "desc"),
         limit(5)
       );
@@ -99,8 +113,11 @@ export default function DashboardPage() {
       })) as Log[];
       setRecentLogs(logs);
 
-      // Calculate stats
-      const allContentsQuery = query(contentsRef);
+      // Calculate stats for user's contents only
+      const allContentsQuery = query(
+        contentsRef,
+        where("userId", "==", user.uid)
+      );
       const allContentsSnapshot = await getDocs(allContentsQuery);
       const allContents = allContentsSnapshot.docs.map(doc => doc.data() as Content);
 
@@ -113,6 +130,11 @@ export default function DashboardPage() {
 
     } catch (error) {
       console.error("Dashboard veri yükleme hatası:", error);
+      toast({
+        title: "Hata",
+        description: "Veriler yüklenirken bir hata oluştu",
+        variant: "destructive",
+      });
     } finally {
       setLoading(false);
     }

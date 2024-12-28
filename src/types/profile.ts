@@ -36,9 +36,9 @@ export interface Profile {
   personalityTraits: string[];
   interests: string[];
   occupation: string;
-  lifestyle: string;
-  mentality: string;
-  toneOfVoice: string;
+  lifestyle: string[];
+  mentality: string[];
+  toneOfVoice: string[];
   language: string;
   isActive: boolean;
   botBehavior: BotBehaviorSettings;
@@ -49,6 +49,8 @@ export interface Profile {
   twitterTokenExpiresAt?: Date | null;
   twitterConnected?: boolean;
   lastError?: string;
+  requiredKeywords?: string[];
+  
 }
 
 // Profil oluşturma için DTO
@@ -59,10 +61,11 @@ export interface CreateProfileDTO {
   age: number;
   personalityTraits: string[];
   interests: string[];
+  requiredKeywords?: string[];
   occupation: string;
-  lifestyle: string;
-  mentality: string;
-  toneOfVoice: string;
+  lifestyle: string[];
+  mentality: string[];
+  toneOfVoice: string[];
   language: string;
   botBehavior: BotBehaviorSettings;
 }
@@ -77,10 +80,11 @@ export interface UpdateProfileDTO {
   bio?: string;
   personalityTraits?: string[];
   interests?: string[];
+  requiredKeywords?: string[];
   occupation?: string;
-  lifestyle?: string;
-  mentality?: string;
-  toneOfVoice?: string;
+  lifestyle?: string[];
+  mentality?: string[];
+  toneOfVoice?: string[];
   language?: string;
   isActive?: boolean;
   botBehavior?: BotBehaviorSettings;

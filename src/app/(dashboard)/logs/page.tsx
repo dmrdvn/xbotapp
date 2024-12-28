@@ -63,11 +63,13 @@ const logCategories = {
 };
 
 export default function LogsPage() {
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [initialLoading, setInitialLoading] = useState(true);
   const [logs, setLogs] = useState<Log[]>([]);
   const [stats, setStats] = useState<LogStats | null>(null);
   const [page, setPage] = useState(1);
   const [hasMore, setHasMore] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
   const form = useForm<FilterFormValues>({
     resolver: zodResolver(filterFormSchema),
@@ -88,12 +90,13 @@ export default function LogsPage() {
         variant: "destructive",
       });
       setLoading(false);
+      setInitialLoading(false);
       return;
     }
 
     try {
       setLoading(true);
-      console.log("Loglar yükleniyor...", { filters, userId: user.uid });
+      setError(null);
 
       // İlk yüklemede veya filtre değiştiğinde istatistikleri getir
       if (!isLoadMore) {
@@ -101,8 +104,6 @@ export default function LogsPage() {
           startDate: filters?.startDate ? new Date(filters.startDate) : undefined,
           endDate: filters?.endDate ? new Date(filters.endDate) : undefined,
         });
-
-        console.log("İstatistikler alındı:", statsResponse);
 
         if (statsResponse.success && statsResponse.data) {
           setStats(statsResponse.data);
@@ -119,13 +120,12 @@ export default function LogsPage() {
         page: page,
       });
 
-      console.log("Loglar alındı:", logsResponse);
-
       if (logsResponse.success && logsResponse.data) {
         const newLogs = logsResponse.data;
         setLogs(isLoadMore ? [...logs, ...newLogs] : newLogs);
         setHasMore(newLogs.length === LOGS_PER_PAGE);
       } else {
+        setError(logsResponse.error || "Loglar yüklenirken bir hata oluştu");
         toast({
           title: "Hata",
           description: logsResponse.error || "Loglar yüklenirken bir hata oluştu",
@@ -134,13 +134,16 @@ export default function LogsPage() {
       }
     } catch (error) {
       console.error("Log yükleme hatası:", error);
+      const errorMessage = error instanceof Error ? error.message : "Loglar yüklenirken bir hata oluştu";
+      setError(errorMessage);
       toast({
         title: "Hata",
-        description: "Loglar yüklenirken bir hata oluştu",
+        description: errorMessage,
         variant: "destructive",
       });
     } finally {
       setLoading(false);
+      setInitialLoading(false);
     }
   }, [page, logs]);
 
@@ -244,10 +247,24 @@ export default function LogsPage() {
     return null;
   };
 
-  if (loading) {
+  if (initialLoading) {
     return (
-      <div className="flex items-center justify-center h-96">
+      <div className="flex flex-col items-center justify-center min-h-[400px] space-y-4">
         <Loader2 className="h-8 w-8 animate-spin" />
+        <p className="text-muted-foreground">Loglar yükleniyor...</p>
+      </div>
+    );
+  }
+
+  if (error && !logs.length) {
+    return (
+      <div className="flex flex-col items-center justify-center min-h-[400px] space-y-4">
+        <AlertCircle className="h-8 w-8 text-destructive" />
+        <div className="text-center">
+          <p className="font-medium">Bir hata oluştu</p>
+          <p className="text-sm text-muted-foreground">{error}</p>
+        </div>
+        <Button onClick={() => loadLogs(form.getValues())}>Tekrar Dene</Button>
       </div>
     );
   }
@@ -255,9 +272,9 @@ export default function LogsPage() {
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-3xl font-bold">Platform Logları</h1>
+        <h1 className="text-3xl font-bold">Sistem Logları</h1>
         <p className="text-muted-foreground">
-          Tüm platform aktivitelerini ve sistem loglarını görüntüleyin
+          Hesabınızla ilgili tüm aktiviteleri ve sistem loglarını görüntüleyin
         </p>
       </div>
 

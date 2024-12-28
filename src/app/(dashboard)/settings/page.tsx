@@ -14,16 +14,14 @@ import {
   FormLabel,
   FormMessage,
 } from "@/components/ui/form";
-import { Input } from "@/components/ui/input";
-import { Switch } from "@/components/ui/switch";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { useToast } from "@/components/ui/use-toast";
 import { Loader2 } from "lucide-react";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { auth } from "@/services/firebase/config";
 import { getUserSettings, updateUserSettings } from "@/services/firebase/settings";
-
-
+import { useRouter } from "next/navigation";
+import { onAuthStateChanged } from "firebase/auth";
 
 // List of common timezones
 const TIMEZONES = [
@@ -38,38 +36,18 @@ const TIMEZONES = [
   "Asia/Tokyo"
 ];
 
+// Language type
+type Language = "tr" | "en";
+
+// Settings type for general settings only
+export interface GeneralSettings {
+  timezone: string;
+  language: Language;
+}
+
 const settingsFormSchema = z.object({
-  tweetFrequency: z.object({
-    minTweetsPerDay: z.number().min(0).max(48),
-    maxTweetsPerDay: z.number().min(0).max(48),
-    minInterval: z.number().min(15),
-  }),
-  replyFrequency: z.object({
-    minRepliesPerDay: z.number().min(0).max(100),
-    maxRepliesPerDay: z.number().min(0).max(100),
-    minInterval: z.number().min(5),
-  }),
-  interactionLimits: z.object({
-    maxLikesPerDay: z.number().min(0).max(500),
-    maxRetweetsPerDay: z.number().min(0).max(100),
-    maxFollowsPerDay: z.number().min(0).max(100),
-  }),
-  activeHours: z.object({
-    start: z.string().regex(/^([01]?[0-9]|2[0-3]):[0-5][0-9]$/, "HH:mm formatında olmalı"),
-    end: z.string().regex(/^([01]?[0-9]|2[0-3]):[0-5][0-9]$/, "HH:mm formatında olmalı"),
-  }),
   timezone: z.string(),
-  isEnabled: z.boolean(),
-}).refine((data) => {
-  return data.tweetFrequency.maxTweetsPerDay >= data.tweetFrequency.minTweetsPerDay;
-}, {
-  message: "Maksimum tweet sayısı, minimum tweet sayısından büyük veya eşit olmalı",
-  path: ["tweetFrequency.maxTweetsPerDay"],
-}).refine((data) => {
-  return data.replyFrequency.maxRepliesPerDay >= data.replyFrequency.minRepliesPerDay;
-}, {
-  message: "Maksimum yanıt sayısı, minimum yanıt sayısından büyük veya eşit olmalı",
-  path: ["replyFrequency.maxRepliesPerDay"],
+  language: z.enum(["tr", "en"]),
 });
 
 type SettingsFormValues = z.infer<typeof settingsFormSchema>;
@@ -77,31 +55,29 @@ type SettingsFormValues = z.infer<typeof settingsFormSchema>;
 export default function SettingsPage() {
   const [loading, setLoading] = useState(true);
   const { toast } = useToast();
+  const router = useRouter();
+
+  // Auth durumunu kontrol et
+  useEffect(() => {
+    const unsubscribe = onAuthStateChanged(auth, (user) => {
+      if (!user) {
+        toast({
+          title: "Yetkisiz Erişim",
+          description: "Bu sayfaya erişmek için giriş yapmanız gerekiyor.",
+          variant: "destructive",
+        });
+        router.push("/auth/login");
+      }
+    });
+
+    return () => unsubscribe();
+  }, [router, toast]);
 
   const form = useForm<SettingsFormValues>({
     resolver: zodResolver(settingsFormSchema),
     defaultValues: {
-      tweetFrequency: {
-        minTweetsPerDay: 3,
-        maxTweetsPerDay: 8,
-        minInterval: 30,
-      },
-      replyFrequency: {
-        minRepliesPerDay: 5,
-        maxRepliesPerDay: 15,
-        minInterval: 10,
-      },
-      interactionLimits: {
-        maxLikesPerDay: 100,
-        maxRetweetsPerDay: 20,
-        maxFollowsPerDay: 20,
-      },
-      activeHours: {
-        start: "09:00",
-        end: "21:00",
-      },
       timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
-      isEnabled: false,
+      language: "tr",
     },
   });
 
@@ -109,13 +85,20 @@ export default function SettingsPage() {
   useEffect(() => {
     const loadSettings = async () => {
       const user = auth.currentUser;
-      if (!user) return;
+      if (!user) {
+        setLoading(false);
+        return;
+      }
 
       try {
         const settingsResponse = await getUserSettings(user.uid);
         if (settingsResponse.success && settingsResponse.data) {
-          form.reset(settingsResponse.data);
-
+          const language = settingsResponse.data.language as Language || "tr";
+          const generalSettings: GeneralSettings = {
+            timezone: settingsResponse.data.timezone || Intl.DateTimeFormat().resolvedOptions().timeZone,
+            language,
+          };
+          form.reset(generalSettings);
         }
       } catch (error) {
         console.error("Ayarlar yüklenirken hata:", error);
@@ -124,7 +107,6 @@ export default function SettingsPage() {
           description: "Ayarlar yüklenirken bir hata oluştu.",
           variant: "destructive",
         });
-
       } finally {
         setLoading(false);
       }
@@ -135,21 +117,63 @@ export default function SettingsPage() {
 
   async function onSubmit(data: SettingsFormValues) {
     const user = auth.currentUser;
-    if (!user) return;
+    if (!user) {
+      toast({
+        title: "Hata",
+        description: "Oturum açmanız gerekiyor.",
+        variant: "destructive",
+      });
+      router.push("/auth/login");
+      return;
+    }
 
     try {
-      await updateUserSettings(user.uid, data);
- 
+      // Mevcut ayarları al ve sadece genel ayarları güncelle
+      const currentSettings = await getUserSettings(user.uid);
+      if (!currentSettings.success) {
+        throw new Error("Mevcut ayarlar alınamadı");
+      }
 
+      // Varsayılan değerleri oluştur
+      const defaultSettings = {
+        tweetFrequency: {
+          minTweetsPerDay: 3,
+          maxTweetsPerDay: 8,
+          minInterval: 30,
+        },
+        replyFrequency: {
+          minRepliesPerDay: 5,
+          maxRepliesPerDay: 15,
+          minInterval: 10,
+        },
+        interactionLimits: {
+          maxLikesPerDay: 100,
+          maxRetweetsPerDay: 20,
+          maxFollowsPerDay: 20,
+        },
+        activeHours: {
+          start: "09:00",
+          end: "21:00",
+        },
+        isEnabled: false,
+      };
+
+      // Mevcut ayarları koru ve sadece genel ayarları güncelle
+      const updatedSettings = {
+        ...defaultSettings,
+        ...currentSettings.data,
+        timezone: data.timezone,
+        language: data.language,
+        userId: user.uid, // Kullanıcı ID'sini ekle
+      };
+      
+      await updateUserSettings(user.uid, updatedSettings);
       toast({
         title: "Başarılı",
         description: "Ayarlarınız başarıyla güncellendi.",
       });
     } catch (error) {
       console.error("Ayarlar güncellenirken hata:", error);
-      
-     
-
       toast({
         title: "Hata",
         description: "Ayarlar güncellenirken bir hata oluştu.",
@@ -169,9 +193,9 @@ export default function SettingsPage() {
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-3xl font-bold">Ayarlar</h1>
+        <h1 className="text-3xl font-bold">Genel Ayarlar</h1>
         <p className="text-muted-foreground">
-          Twitter bot davranışlarını ve limitlerini yapılandırın.
+          Uygulama genelinde kullanılacak ayarları yapılandırın.
         </p>
       </div>
 
@@ -179,246 +203,9 @@ export default function SettingsPage() {
         <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-8">
           <Card>
             <CardHeader>
-              <CardTitle>Tweet Sıklığı</CardTitle>
+              <CardTitle>Sistem Ayarları</CardTitle>
               <CardDescription>
-                Botun ne sıklıkla tweet atması gerektiğini yapılandırın.
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div className="grid grid-cols-3 gap-4">
-                <FormField
-                  control={form.control}
-                  name="tweetFrequency.minTweetsPerDay"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Min Tweet/Gün</FormLabel>
-                      <FormControl>
-                        <Input
-                          type="number"
-                          {...field}
-                          onChange={(e) => field.onChange(Number(e.target.value))}
-                        />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-                <FormField
-                  control={form.control}
-                  name="tweetFrequency.maxTweetsPerDay"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Max Tweet/Gün</FormLabel>
-                      <FormControl>
-                        <Input
-                          type="number"
-                          {...field}
-                          onChange={(e) => field.onChange(Number(e.target.value))}
-                        />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-                <FormField
-                  control={form.control}
-                  name="tweetFrequency.minInterval"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Min Aralık (dk)</FormLabel>
-                      <FormControl>
-                        <Input
-                          type="number"
-                          {...field}
-                          onChange={(e) => field.onChange(Number(e.target.value))}
-                        />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-              </div>
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardHeader>
-              <CardTitle>Yanıt Sıklığı</CardTitle>
-              <CardDescription>
-                Botun diğer tweetlere ne sıklıkla yanıt vermesi gerektiğini yapılandırın.
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div className="grid grid-cols-3 gap-4">
-                <FormField
-                  control={form.control}
-                  name="replyFrequency.minRepliesPerDay"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Min Yanıt/Gün</FormLabel>
-                      <FormControl>
-                        <Input
-                          type="number"
-                          {...field}
-                          onChange={(e) => field.onChange(Number(e.target.value))}
-                        />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-                <FormField
-                  control={form.control}
-                  name="replyFrequency.maxRepliesPerDay"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Max Yanıt/Gün</FormLabel>
-                      <FormControl>
-                        <Input
-                          type="number"
-                          {...field}
-                          onChange={(e) => field.onChange(Number(e.target.value))}
-                        />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-                <FormField
-                  control={form.control}
-                  name="replyFrequency.minInterval"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Min Aralık (dk)</FormLabel>
-                      <FormControl>
-                        <Input
-                          type="number"
-                          {...field}
-                          onChange={(e) => field.onChange(Number(e.target.value))}
-                        />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-              </div>
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardHeader>
-              <CardTitle>Etkileşim Limitleri</CardTitle>
-              <CardDescription>
-                Günlük maksimum etkileşim limitlerini ayarlayın.
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div className="grid grid-cols-3 gap-4">
-                <FormField
-                  control={form.control}
-                  name="interactionLimits.maxLikesPerDay"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Max Beğeni/Gün</FormLabel>
-                      <FormControl>
-                        <Input
-                          type="number"
-                          {...field}
-                          onChange={(e) => field.onChange(Number(e.target.value))}
-                        />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-                <FormField
-                  control={form.control}
-                  name="interactionLimits.maxRetweetsPerDay"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Max Retweet/Gün</FormLabel>
-                      <FormControl>
-                        <Input
-                          type="number"
-                          {...field}
-                          onChange={(e) => field.onChange(Number(e.target.value))}
-                        />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-                <FormField
-                  control={form.control}
-                  name="interactionLimits.maxFollowsPerDay"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Max Takip/Gün</FormLabel>
-                      <FormControl>
-                        <Input
-                          type="number"
-                          {...field}
-                          onChange={(e) => field.onChange(Number(e.target.value))}
-                        />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-              </div>
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardHeader>
-              <CardTitle>Aktif Saatler</CardTitle>
-              <CardDescription>
-                Botun aktif olacağı saat aralığını belirleyin.
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div className="grid grid-cols-2 gap-4">
-                <FormField
-                  control={form.control}
-                  name="activeHours.start"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Başlangıç Saati</FormLabel>
-                      <FormControl>
-                        <Input
-                          type="time"
-                          {...field}
-                        />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-                <FormField
-                  control={form.control}
-                  name="activeHours.end"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Bitiş Saati</FormLabel>
-                      <FormControl>
-                        <Input
-                          type="time"
-                          {...field}
-                        />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-              </div>
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardHeader>
-              <CardTitle>Genel Ayarlar</CardTitle>
-              <CardDescription>
-                Zaman dilimi ve bot durumu gibi genel ayarları yapılandırın.
+                Zaman dilimi ve dil gibi temel ayarları yapılandırın.
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
@@ -442,6 +229,9 @@ export default function SettingsPage() {
                         ))}
                       </SelectContent>
                     </Select>
+                    <FormDescription>
+                      Tüm tarih ve saat gösterimleri için kullanılacak zaman dilimi
+                    </FormDescription>
                     <FormMessage />
                   </FormItem>
                 )}
@@ -449,21 +239,25 @@ export default function SettingsPage() {
 
               <FormField
                 control={form.control}
-                name="isEnabled"
+                name="language"
                 render={({ field }) => (
-                  <FormItem className="flex flex-row items-center justify-between rounded-lg border p-4">
-                    <div className="space-y-0.5">
-                      <FormLabel className="text-base">Bot Durumu</FormLabel>
-                      <FormDescription>
-                        Botu etkinleştirin veya devre dışı bırakın
-                      </FormDescription>
-                    </div>
-                    <FormControl>
-                      <Switch
-                        checked={field.value}
-                        onCheckedChange={field.onChange}
-                      />
-                    </FormControl>
+                  <FormItem>
+                    <FormLabel>Dil</FormLabel>
+                    <Select onValueChange={field.onChange} defaultValue={field.value}>
+                      <FormControl>
+                        <SelectTrigger>
+                          <SelectValue placeholder="Dil seçin" />
+                        </SelectTrigger>
+                      </FormControl>
+                      <SelectContent>
+                        <SelectItem value="tr">Türkçe</SelectItem>
+                        <SelectItem value="en">English</SelectItem>
+                      </SelectContent>
+                    </Select>
+                    <FormDescription>
+                      Uygulama arayüzünde kullanılacak dil
+                    </FormDescription>
+                    <FormMessage />
                   </FormItem>
                 )}
               />

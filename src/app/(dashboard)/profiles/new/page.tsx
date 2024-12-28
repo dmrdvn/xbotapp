@@ -23,9 +23,8 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Textarea } from "@/components/ui/textarea";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Loader2 } from "lucide-react";
+import { Loader2, Plus, CalendarIcon } from "lucide-react";
 import { auth } from "@/services/firebase/config";
 import { createProfile } from "@/services/firebase/profile";
 import { createLog } from "@/services/firebase/log";
@@ -33,24 +32,26 @@ import { LogType, LogSeverity } from "@/types/log";
 import { BotBehaviorSettings, CreateProfileDTO } from "@/types/profile";
 import { toast } from "sonner";
 import { Switch } from "@/components/ui/switch";
+import { format } from "date-fns";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
+import { cn } from "@/lib/utils";
 
-// Form için Zod şeması - CreateProfileDTO ile eşleşir
+// Form için Zod şeması güncelleniyor
 const profileFormSchema = z.object({
   name: z.string().min(2, "İsim en az 2 karakter olmalıdır"),
   surname: z.string().min(2, "Soyisim en az 2 karakter olmalıdır"),
   age: z.number().min(18, "Yaş en az 18 olmalıdır").max(100, "Yaş en fazla 100 olabilir"),
   occupation: z.string().min(2, "Meslek en az 2 karakter olmalıdır"),
-  lifestyle: z.string().min(2, "Yaşam tarzı en az 2 karakter olmalıdır"),
-  mentality: z.string().min(2, "Düşünce yapısı en az 2 karakter olmalıdır"),
-  toneOfVoice: z.string().min(2, "Konuşma tarzı en az 2 karakter olmalıdır"),
-  personalityTraits: z.array(z.string()).default([]).transform((val) => {
-    if (Array.isArray(val)) return val;
-    return [];
-  }),
-  interests: z.array(z.string()).default([]).transform((val) => {
-    if (Array.isArray(val)) return val;
-    return [];
-  }),
+  lifestyle: z.array(z.string()).min(1, "En az bir yaşam tarzı seçmelisiniz"),
+  mentality: z.array(z.string()).min(1, "En az bir düşünce yapısı seçmelisiniz"),
+  toneOfVoice: z.array(z.string()).min(1, "En az bir konuşma tarzı seçmelisiniz"),
+  personalityTraits: z.array(z.string()).default([]),
+  interests: z.array(z.string()).min(1, "En az bir ilgi alanı seçmelisiniz"),
+  requiredKeywords: z.array(z.string()).default([]),
   language: z.string().default("tr"),
   isActive: z.boolean().default(false),
   botBehavior: z.object({
@@ -85,7 +86,7 @@ const defaultBotBehavior: BotBehaviorSettings = {
   activeDays: ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"],
 };
 
-// Özellik ve ilgi alanları için seçenekler
+// Seçenekler
 const personalityOptions = [
   "Dışa dönük",
   "İçe dönük",
@@ -97,6 +98,51 @@ const personalityOptions = [
   "Mantıklı",
   "Duygusal",
   "Sistematik"
+];
+
+const lifestyleOptions = [
+  "Aktif",
+  "Spor tutkunu",
+  "Sağlıklı yaşam",
+  "Minimalist",
+  "Sosyal",
+  "Çevre dostu",
+  "Teknoloji meraklısı",
+  "Sanat sever",
+  "Gezgin",
+  "İş odaklı",
+  "Aile odaklı",
+  "Eğitim odaklı"
+];
+
+const mentalityOptions = [
+  "Yenilikçi",
+  "Analitik",
+  "Pragmatik",
+  "İdealist",
+  "Girişimci",
+  "Araştırmacı",
+  "Öğrenmeye açık",
+  "Çözüm odaklı",
+  "Detaycı",
+  "Bütüncül",
+  "Stratejik düşünen",
+  "Yaratıcı düşünen"
+];
+
+const toneOfVoiceOptions = [
+  "Profesyonel",
+  "Samimi",
+  "Bilgilendirici",
+  "Esprili",
+  "Ciddi",
+  "Motive edici",
+  "Düşündürücü",
+  "Sorgulayıcı",
+  "İlham verici",
+  "Öğretici",
+  "Destekleyici",
+  "Eleştirel"
 ];
 
 const interestOptions = [
@@ -115,26 +161,31 @@ const interestOptions = [
   "Eğitim"
 ];
 
+// Form için varsayılan değerler
+const defaultValues: Partial<ProfileFormValues> = {
+  name: "",
+  surname: "",
+  age: 25,
+  occupation: "",
+  lifestyle: [],
+  mentality: [],
+  toneOfVoice: [],
+  language: "tr",
+  personalityTraits: [],
+  interests: [],
+  requiredKeywords: [],
+  isActive: false,
+  botBehavior: defaultBotBehavior,
+};
+
 export default function NewProfilePage() {
   const router = useRouter();
   const [loading, setLoading] = useState(false);
+  const [newKeyword, setnewKeyword] = useState("");
 
   const form = useForm<ProfileFormValues>({
     resolver: zodResolver(profileFormSchema),
-    defaultValues: {
-      name: "",
-      surname: "",
-      age: 25,
-      occupation: "",
-      lifestyle: "",
-      mentality: "",
-      toneOfVoice: "",
-      language: "tr",
-      personalityTraits: [],
-      interests: [],
-      isActive: false,
-      botBehavior: defaultBotBehavior,
-    },
+    defaultValues: defaultValues,
   });
 
   const onSubmit = async (formData: ProfileFormValues) => {
@@ -156,6 +207,7 @@ export default function NewProfilePage() {
         age: formData.age,
         personalityTraits: formData.personalityTraits,
         interests: formData.interests,
+        requiredKeywords: formData.requiredKeywords,
         occupation: formData.occupation,
         lifestyle: formData.lifestyle,
         mentality: formData.mentality,
@@ -190,6 +242,17 @@ export default function NewProfilePage() {
       toast.error("Profil oluşturulurken bir hata oluştu");
     } finally {
       setLoading(false);
+    }
+  };
+
+  // Özel keyword ekleme fonksiyonu
+  const handleAddKeyword = () => {
+    if (newKeyword.trim()) {
+      const currentKeywords = form.getValues("requiredKeywords") || [];
+      if (!currentKeywords.includes(newKeyword)) {
+        form.setValue("requiredKeywords", [...currentKeywords, newKeyword]);
+      }
+      setnewKeyword("");
     }
   };
 
@@ -278,8 +341,41 @@ export default function NewProfilePage() {
                     <FormItem>
                       <FormLabel>Yaşam Tarzı</FormLabel>
                       <FormControl>
-                        <Input placeholder="Aktif, spor sever" {...field} />
+                        <Select
+                          onValueChange={(value) => {
+                            const currentValues = Array.isArray(field.value) ? field.value : [];
+                            if (!currentValues.includes(value)) {
+                              field.onChange([...currentValues, value]);
+                            }
+                          }}
+                          value=""
+                        >
+                          <SelectTrigger>
+                            <SelectValue placeholder="Yaşam tarzı seçin" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {lifestyleOptions.map((option) => (
+                              <SelectItem key={option} value={option}>
+                                {option}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
                       </FormControl>
+                      <div className="flex flex-wrap gap-2 mt-2">
+                        {Array.isArray(field.value) && field.value.map((value) => (
+                          <Button
+                            key={value}
+                            variant="secondary"
+                            size="sm"
+                            onClick={() => {
+                              field.onChange(field.value.filter((v) => v !== value));
+                            }}
+                          >
+                            {value} ×
+                          </Button>
+                        ))}
+                      </div>
                       <FormMessage />
                     </FormItem>
                   )}
@@ -410,12 +506,41 @@ export default function NewProfilePage() {
                     <FormItem>
                       <FormLabel>Düşünce Yapısı</FormLabel>
                       <FormControl>
-                        <Textarea
-                          placeholder="Yenilikçi ve analitik düşünce yapısı"
-                          className="h-20"
-                          {...field}
-                        />
+                        <Select
+                          onValueChange={(value) => {
+                            const currentValues = Array.isArray(field.value) ? field.value : [];
+                            if (!currentValues.includes(value)) {
+                              field.onChange([...currentValues, value]);
+                            }
+                          }}
+                          value=""
+                        >
+                          <SelectTrigger>
+                            <SelectValue placeholder="Düşünce yapısı seçin" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {mentalityOptions.map((option) => (
+                              <SelectItem key={option} value={option}>
+                                {option}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
                       </FormControl>
+                      <div className="flex flex-wrap gap-2 mt-2">
+                        {Array.isArray(field.value) && field.value.map((value) => (
+                          <Button
+                            key={value}
+                            variant="secondary"
+                            size="sm"
+                            onClick={() => {
+                              field.onChange(field.value.filter((v) => v !== value));
+                            }}
+                          >
+                            {value} ×
+                          </Button>
+                        ))}
+                      </div>
                       <FormMessage />
                     </FormItem>
                   )}
@@ -428,12 +553,93 @@ export default function NewProfilePage() {
                     <FormItem>
                       <FormLabel>Konuşma Tarzı</FormLabel>
                       <FormControl>
-                        <Textarea
-                          placeholder="Profesyonel ve samimi bir dil kullanır"
-                          className="h-20"
-                          {...field}
-                        />
+                        <Select
+                          onValueChange={(value) => {
+                            const currentValues = Array.isArray(field.value) ? field.value : [];
+                            if (!currentValues.includes(value)) {
+                              field.onChange([...currentValues, value]);
+                            }
+                          }}
+                          value=""
+                        >
+                          <SelectTrigger>
+                            <SelectValue placeholder="Konuşma tarzı seçin" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {toneOfVoiceOptions.map((option) => (
+                              <SelectItem key={option} value={option}>
+                                {option}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
                       </FormControl>
+                      <div className="flex flex-wrap gap-2 mt-2">
+                        {Array.isArray(field.value) && field.value.map((value) => (
+                          <Button
+                            key={value}
+                            variant="secondary"
+                            size="sm"
+                            onClick={() => {
+                              field.onChange(field.value.filter((v) => v !== value));
+                            }}
+                          >
+                            {value} ×
+                          </Button>
+                        ))}
+                      </div>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+
+                <FormField
+                  control={form.control}
+                  name="requiredKeywords"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>İçerikte Geçmesi Gereken Konular/Kelimeler</FormLabel>
+                      <FormDescription>
+                        Bot içerik oluştururken bu kelimeleri veya konuları tweet&apos;lere dahil edecektir
+                      </FormDescription>
+                      <div className="flex gap-2">
+                        <FormControl>
+                          <Input
+                            placeholder="Örn: yazılım, teknoloji, yapay zeka"
+                            value={newKeyword}
+                            onChange={(e) => setnewKeyword(e.target.value)}
+                            onKeyPress={(e) => {
+                              if (e.key === "Enter") {
+                                e.preventDefault();
+                                handleAddKeyword();
+                              }
+                            }}
+                          />
+                        </FormControl>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="icon"
+                          onClick={handleAddKeyword}
+                        >
+                          <Plus className="h-4 w-4" />
+                        </Button>
+                      </div>
+                      <div className="flex flex-wrap gap-2 mt-2">
+                        {field.value?.map((keyword) => (
+                          <Button
+                            key={keyword}
+                            variant="secondary"
+                            size="sm"
+                            onClick={() => {
+                              const updatedKeywords = field.value.filter((h) => h !== keyword);
+                              form.setValue("requiredKeywords", updatedKeywords);
+                            }}
+                          >
+                            {keyword} ×
+                          </Button>
+                        ))}
+                      </div>
                       <FormMessage />
                     </FormItem>
                   )}
@@ -454,6 +660,8 @@ export default function NewProfilePage() {
                       <FormControl>
                         <Input
                           type="number"
+                          min={1}
+                          max={48}
                           {...field}
                           onChange={(e) => field.onChange(parseInt(e.target.value))}
                         />
@@ -575,17 +783,43 @@ export default function NewProfilePage() {
                   control={form.control}
                   name="botBehavior.activeHoursStart"
                   render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Aktif Saat Başlangıcı (0-23)</FormLabel>
-                      <FormControl>
-                        <Input
-                          type="number"
-                          min={0}
-                          max={23}
-                          {...field}
-                          onChange={(e) => field.onChange(parseInt(e.target.value))}
-                        />
-                      </FormControl>
+                    <FormItem className="flex flex-col">
+                      <FormLabel>Aktif Saatler Başlangıcı</FormLabel>
+                      <Popover>
+                        <PopoverTrigger asChild>
+                          <FormControl>
+                            <Button
+                              variant={"outline"}
+                              className={cn(
+                                "w-[240px] pl-3 text-left font-normal",
+                                !field.value && "text-muted-foreground"
+                              )}
+                            >
+                              {field.value !== undefined ? (
+                                format(new Date().setHours(field.value, 0), "HH:mm")
+                              ) : (
+                                <span>Saat seçin</span>
+                              )}
+                              <CalendarIcon className="ml-auto h-4 w-4 opacity-50" />
+                            </Button>
+                          </FormControl>
+                        </PopoverTrigger>
+                        <PopoverContent className="w-auto p-0" align="start">
+                          <div className="grid grid-cols-2 gap-2 p-2">
+                            {Array.from({ length: 24 }, (_, i) => (
+                              <Button
+                                key={i}
+                                variant={field.value === i ? "default" : "outline"}
+                                onClick={() => {
+                                  field.onChange(i);
+                                }}
+                              >
+                                {i.toString().padStart(2, "0")}:00
+                              </Button>
+                            ))}
+                          </div>
+                        </PopoverContent>
+                      </Popover>
                       <FormMessage />
                     </FormItem>
                   )}
@@ -595,17 +829,43 @@ export default function NewProfilePage() {
                   control={form.control}
                   name="botBehavior.activeHoursEnd"
                   render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Aktif Saat Bitişi (0-23)</FormLabel>
-                      <FormControl>
-                        <Input
-                          type="number"
-                          min={0}
-                          max={23}
-                          {...field}
-                          onChange={(e) => field.onChange(parseInt(e.target.value))}
-                        />
-                      </FormControl>
+                    <FormItem className="flex flex-col">
+                      <FormLabel>Aktif Saatler Bitişi</FormLabel>
+                      <Popover>
+                        <PopoverTrigger asChild>
+                          <FormControl>
+                            <Button
+                              variant={"outline"}
+                              className={cn(
+                                "w-[240px] pl-3 text-left font-normal",
+                                !field.value && "text-muted-foreground"
+                              )}
+                            >
+                              {field.value !== undefined ? (
+                                format(new Date().setHours(field.value, 0), "HH:mm")
+                              ) : (
+                                <span>Saat seçin</span>
+                              )}
+                              <CalendarIcon className="ml-auto h-4 w-4 opacity-50" />
+                            </Button>
+                          </FormControl>
+                        </PopoverTrigger>
+                        <PopoverContent className="w-auto p-0" align="start">
+                          <div className="grid grid-cols-2 gap-2 p-2">
+                            {Array.from({ length: 24 }, (_, i) => (
+                              <Button
+                                key={i}
+                                variant={field.value === i ? "default" : "outline"}
+                                onClick={() => {
+                                  field.onChange(i);
+                                }}
+                              >
+                                {i.toString().padStart(2, "0")}:00
+                              </Button>
+                            ))}
+                          </div>
+                        </PopoverContent>
+                      </Popover>
                       <FormMessage />
                     </FormItem>
                   )}
