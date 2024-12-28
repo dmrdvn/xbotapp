@@ -7,21 +7,14 @@ import { LogType, LogSeverity } from "@/types/log";
 import { Profile } from "@/types/profile";
 import { ContentType } from "@/types/Content";
 
-// Cron endpoint'i sadece Vercel tarafından çağrılabilir
-const CRON_SECRET = process.env.CRON_SECRET;
+
 
 export async function GET(request: Request) {
   try {
-    // Cron secret kontrolü
-    const authHeader = request.headers.get("authorization");
-    if (authHeader !== `Bearer ${CRON_SECRET}`) {
-      return NextResponse.json(
-        { 
-          success: false, 
-          error: "Unauthorized" 
-        },
-        { status: 401 }
-      );
+    // Authorization kontrolü
+    const authHeader = request.headers.get('authorization');
+    if (authHeader !== `Bearer ${process.env.CRON_SECRET}`) {
+      return new Response('Unauthorized', { status: 401 });
     }
 
     console.log("[CRON] İçerik üretme işlemi başladı");

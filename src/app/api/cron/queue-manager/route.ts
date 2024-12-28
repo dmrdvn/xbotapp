@@ -1,26 +1,26 @@
 import { NextResponse } from "next/server";
 import { db } from "@/services/firebase/config";
-import { collection, query, where, getDocs, updateDoc, doc, Timestamp } from "firebase/firestore";
+import { 
+  collection, 
+  getDocs, 
+  query, 
+  where,
+  doc,
+  updateDoc,
+  Timestamp,
+  getDoc
+} from "firebase/firestore";
 import { createLog } from "@/services/firebase/log";
 import { LogType, LogSeverity } from "@/types/log";
 import { Profile } from "@/types/profile";
 import { Content, ContentStatus } from "@/types/Content";
 
-// Cron endpoint'i sadece Vercel tarafından çağrılabilir
-const CRON_SECRET = process.env.CRON_SECRET;
-
 export async function GET(request: Request) {
   try {
-    // Cron secret kontrolü
-    const authHeader = request.headers.get("authorization");
-    if (authHeader !== `Bearer ${CRON_SECRET}`) {
-      return NextResponse.json(
-        { 
-          success: false, 
-          error: "Unauthorized" 
-        },
-        { status: 401 }
-      );
+    // Authorization kontrolü
+    const authHeader = request.headers.get('authorization');
+    if (authHeader !== `Bearer ${process.env.CRON_SECRET}`) {
+      return new Response('Unauthorized', { status: 401 });
     }
 
     console.log("[CRON] Tweet kuyruğu yönetimi başladı");
@@ -47,13 +47,15 @@ export async function GET(request: Request) {
 
       try {
         // Profil bilgilerini al
-        const profileSnap = await getDocs(query(collection(db, "profiles"), where("id", "==", content.profileId)));
-        currentProfile = profileSnap.docs[0]?.data() as Profile | undefined;
-
-        if (!currentProfile) {
+        const profileRef = doc(db, "profiles", content.profileId);
+        const profileSnap = await getDoc(profileRef);
+        
+        if (!profileSnap.exists()) {
           console.error(`[CRON] ${content.id} içeriği için profil bulunamadı`);
           continue;
         }
+
+        const currentProfile = { id: profileSnap.id, ...profileSnap.data() } as Profile;
 
         if (!currentProfile.isActive) {
           console.log(`[CRON] ${content.id} içeriği için profil aktif değil, atlıyorum`);
