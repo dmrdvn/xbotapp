@@ -25,7 +25,8 @@ export async function generateContent(props: GenerateContentProps): Promise<stri
       throw new Error(data.error?.message || "İçerik üretilemedi");
     }
 
-    return data.data;
+    // API bir dizi dönüyorsa ilk elemanı al
+    return Array.isArray(data.data) ? data.data[0] : data.data;
   } catch (error) {
     console.error("İçerik üretme hatası:", error);
     throw new Error("İçerik üretilemedi");

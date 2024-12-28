@@ -80,8 +80,8 @@ export default function LandingPage() {
               <Button size="lg" onClick={handleGetStarted}>
                 Get Started <BsArrowRight className="ml-2" />
               </Button>
-              <Button size="lg" variant="outline" onClick={() => router.push("/auth/login")}>
-                Learn More
+              <Button size="lg" variant="default" onClick={() => router.push("dashboard")}>
+                Contact Us
               </Button>
             </div>
           </div>
